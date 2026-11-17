@@ -21,6 +21,7 @@ public sealed class Function
         TracingSetup.Register();
         return DependencyInjection.BuildLambdaServices((s, c) =>
         {
+            PowertoolsSetup.Use(s);
             s.AddSingleton(TimeProvider.System);
             s.AddStatusHubDynamo(c);
             s.AddStatusHubAwsPublishers(c);

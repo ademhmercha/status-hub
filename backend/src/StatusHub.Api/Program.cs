@@ -17,6 +17,7 @@ var inLambda = Environment.GetEnvironmentVariable("AWS_LAMBDA_FUNCTION_NAME") is
 if (inLambda)
 {
     TracingSetup.Register();
+    PowertoolsSetup.Use(builder.Services);
     builder.Logging.ClearProviders();
     builder.Logging.AddPowertoolsLogger(c => { });
 }

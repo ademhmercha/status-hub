@@ -97,7 +97,7 @@ public static class SqsBatch
             }
             catch (Exception ex)
             {
-                AWS.Lambda.Powertools.Logging.Logger.LogError(ex, "Record {MessageId} failed and will be retried", record.MessageId);
+                Telemetry.LogError(ex, $"Record {record.MessageId} failed and will be retried");
                 return false;
             }
         }
@@ -115,7 +115,7 @@ public static class SqsBatch
             try { await afterAll(ct); }
             catch (Exception ex)
             {
-                AWS.Lambda.Powertools.Logging.Logger.LogError(ex, "Flushing outgoing messages failed: the whole batch will be retried");
+                Telemetry.LogError(ex, "Flushing outgoing messages failed: the whole batch will be retried");
                 Array.Fill(ok, false);
             }
         }

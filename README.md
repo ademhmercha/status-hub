@@ -37,7 +37,7 @@ un message livré deux fois ne produit qu'un seul résultat et un seul incident.
 
 | Domaine | Choix |
 |---|---|
-| Backend | .NET 10, C#, ASP.NET Core Minimal API, AWS Lambda (le Checker en Native AOT), Powertools for AWS Lambda |
+| Backend | .NET 10, C#, ASP.NET Core Minimal API, AWS Lambda (le Checker en Native AOT), Powertools for AWS Lambda (le Checker, en AOT, utilise un équivalent natif : logs JSON et métriques EMF) |
 | Données et messages | DynamoDB (une seule table), SQS + DLQ, EventBridge (bus et Scheduler), SES |
 | Frontend | Angular (composants autonomes, signals), graphiques SVG maison, mode clair/sombre |
 | Authentification | Amazon Cognito (email/mot de passe, Google en option), JWT |

@@ -8,6 +8,8 @@
 
   <ItemGroup>
     <PackageReference Include="Amazon.Lambda.AspNetCoreServer.Hosting" Version="2.2.1" />
+    <PackageReference Include="AWS.Lambda.Powertools.Logging" Version="3.2.2" />
+    <PackageReference Include="AWS.Lambda.Powertools.Metrics" Version="3.2.2" />
     <PackageReference Include="AWS.Lambda.Powertools.Tracing" Version="3.2.2" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.*" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.*" />
@@ -21,6 +23,7 @@
 
   <ItemGroup>
     <Compile Include="../Shared/TracingSetup.cs" Link="TracingSetup.cs" />
+    <Compile Include="../Shared/PowertoolsSetup.cs" Link="PowertoolsSetup.cs" />
   </ItemGroup>
 
 </Project>

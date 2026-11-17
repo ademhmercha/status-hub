@@ -136,3 +136,53 @@ public class TelemetryTests
         }
     }
 }
+
+public class EmfTests
+{
+    [Fact]
+    public void Flush_WritesOneEmfLine_WithNamespaceDimensionUnitsAndValueArrays()
+    {
+        var sw = new StringWriter();
+        var emf = new EmfStatusMetrics("StatusHub/dev", "checker", sw);
+        emf.Count(MetricNames.ChecksExecuted);
+        emf.Count(MetricNames.ChecksExecuted);
+        emf.Milliseconds(MetricNames.CheckLatencyMs, 120);
+        emf.Flush();
+
+        var line = sw.ToString().Trim();
+        Assert.DoesNotContain('\n', line);
+        using var doc = System.Text.Json.JsonDocument.Parse(line);
+        var root = doc.RootElement;
+        var dir = root.GetProperty("_aws").GetProperty("CloudWatchMetrics")[0];
+        Assert.Equal("StatusHub/dev", dir.GetProperty("Namespace").GetString());
+        Assert.Equal("Service", dir.GetProperty("Dimensions")[0][0].GetString());
+        Assert.Equal("checker", root.GetProperty("Service").GetString());
+        Assert.Equal(2, root.GetProperty("ChecksExecuted").GetArrayLength()); // several values = array
+        Assert.Equal(120, root.GetProperty("CheckLatencyMs").GetDouble());   // one value = number
+        Assert.Contains(dir.GetProperty("Metrics").EnumerateArray(), m => m.GetProperty("Name").GetString() == "CheckLatencyMs" && m.GetProperty("Unit").GetString() == "Milliseconds");
+
+        sw.GetStringBuilder().Clear();
+        emf.Flush(); // nothing pending: nothing written
+        Assert.Equal("", sw.ToString());
+    }
+
+    [Fact]
+    public void Flush_SplitsMoreThan100ValuesOfAMetric()
+    {
+        var sw = new StringWriter();
+        var emf = new EmfStatusMetrics("ns", "svc", sw);
+        for (var i = 0; i < 230; i++) emf.Count("X");
+        emf.Flush();
+        Assert.Equal(3, sw.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
+    }
+
+    [Fact]
+    public void ColdStart_UsesServiceAndFunctionNameDimensions()
+    {
+        var sw = new StringWriter();
+        new EmfStatusMetrics("ns", "svc", sw).EmitSingle("ColdStart", 1, "Count", new Dictionary<string, string> { ["FunctionName"] = "fn" });
+        using var doc = System.Text.Json.JsonDocument.Parse(sw.ToString());
+        var dims = doc.RootElement.GetProperty("_aws").GetProperty("CloudWatchMetrics")[0].GetProperty("Dimensions")[0];
+        Assert.Equal(["Service", "FunctionName"], dims.EnumerateArray().Select(d => d.GetString()));
+    }
+}

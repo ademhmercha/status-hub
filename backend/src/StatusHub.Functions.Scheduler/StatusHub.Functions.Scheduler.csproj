@@ -7,6 +7,8 @@
   <ItemGroup>
     <PackageReference Include="Amazon.Lambda.Core" Version="3.4.0" />
     <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="3.0.1" />
+    <PackageReference Include="AWS.Lambda.Powertools.Logging" Version="3.2.2" />
+    <PackageReference Include="AWS.Lambda.Powertools.Metrics" Version="3.2.2" />
     <PackageReference Include="AWS.Lambda.Powertools.Tracing" Version="3.2.2" />
   </ItemGroup>
 
@@ -18,6 +20,7 @@
 
   <ItemGroup>
     <Compile Include="../Shared/TracingSetup.cs" Link="TracingSetup.cs" />
+    <Compile Include="../Shared/PowertoolsSetup.cs" Link="PowertoolsSetup.cs" />
   </ItemGroup>
 
 </Project>
