@@ -81,7 +81,7 @@ Chiffres **mesurés en local** (500 moniteurs, 5 minutes, base DynamoDB locale),
 |---|---|
 | Moniteurs surveillés en parallèle | 500 (8,3 vérifications par seconde) |
 | Vérifications perdues / en retard (> 60 s) | 0 / 0 sur 2 500 |
-| Retard moyen après l'heure prévue (p95) | 0,8 s |
+| Retard après l'heure prévue (p95) | 0,8 s |
 | Panne → incident → alerte (intervalle 1 min) | ≈ 1 à 2 min ; alerte en 0,1 s après l'incident |
 | Tests automatiques | 208 (backend 170, frontend 38), tous verts |
 
