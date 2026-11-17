@@ -2,8 +2,8 @@
 #   docker build --target artifact --output type=local,dest=out -f build-tools/aot/Dockerfile .
 FROM public.ecr.aws/amazonlinux/amazonlinux:2023 AS build
 
-# clang + zlib + binutils (objcopy) are required by the NativeAOT toolchain on Linux.
-RUN dnf install -y clang zlib-devel binutils tar gzip which findutils && dnf clean all
+# clang + zlib + binutils (objcopy) are required by the NativeAOT toolchain on Linux; libicu is required by the .NET SDK itself.
+RUN dnf install -y clang zlib-devel binutils tar gzip which findutils libicu && dnf clean all
 
 # Official Microsoft install script; channel 10.0 = latest .NET 10 patch.
 RUN curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
