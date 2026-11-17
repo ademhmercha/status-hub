@@ -93,6 +93,16 @@ public class ApiTests(ApiFixture api) : IClassFixture<ApiFixture>
         Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync($"/api/v1/monitors/{id}")).StatusCode);
     }
 
+    [Fact]
+    public async Task Create_DefaultsToAFiveMinuteInterval_AndOneMinuteStaysPossible()
+    {
+        var (c, _) = await NewUser();
+        var def = await Json(await c.PostAsJsonAsync("/api/v1/monitors", new { name = "d", url = "https://example.com" }));
+        Assert.Equal(5, def.GetProperty("intervalMinutes").GetInt32());
+        var one = await Json(await c.PostAsJsonAsync("/api/v1/monitors", new { name = "o", url = "https://example.com", intervalMinutes = 1 }));
+        Assert.Equal(1, one.GetProperty("intervalMinutes").GetInt32());
+    }
+
     [Theory]
     [InlineData("http://localhost/")]
     [InlineData("http://127.0.0.1:8000/")]

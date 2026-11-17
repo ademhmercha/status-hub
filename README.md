@@ -19,30 +19,16 @@
 - **Analyser** : disponibilité sur 24 h / 7 j / 30 j, latence p50 et p95, liste des incidents.
 - **Démontrer** : un panneau de démo coupe et rétablit une cible intégrée pour voir l'incident s'ouvrir, l'alerte partir et l'incident se fermer en direct.
 
-<!-- Captures d'écran : voir docs/screenshots/README.md pour la liste à produire -->
+<!-- Captures d'écran : à réactiver quand docs/screenshots/*.png existent (liste dans docs/screenshots/README.md)
 | Tableau de bord | Détail d'un moniteur | Page de statut publique |
 |---|---|---|
 | ![Tableau de bord](docs/screenshots/dashboard.png) | ![Détail](docs/screenshots/monitor.png) | ![Page de statut](docs/screenshots/status-page.png) |
+-->
 
 ## Architecture
 
 ![Architecture](docs/architecture.png)
 
-```mermaid
-flowchart LR
-  user([Utilisateur]) --> cf[CloudFront + S3<br/>Angular]
-  cf --> apigw[API Gateway<br/>JWT Cognito]
-  apigw --> api[Lambda API]
-  api --> ddb[(DynamoDB)]
-  sch[EventBridge Scheduler<br/>chaque minute] --> sched[Lambda Scheduler]
-  sched --> q1[[SQS checks]] --> chk[Lambda Checker<br/>Native AOT]
-  chk --> q2[[SQS résultats]] --> ev[Lambda Evaluator]
-  ev --> ddb
-  ev --> bus{{EventBridge}} --> q3[[SQS alertes]] --> not[Lambda Notifier]
-  not --> ses[SES email]
-  not --> hook[Webhooks signés]
-  public([Visiteur]) --> cf
-```
 
 Une vérification traverse quatre fonctions (Scheduler → Checker → Evaluator → Notifier) reliées par des files SQS avec file d'attente des échecs (DLQ). Chaque étape est idempotente :
 un message livré deux fois ne produit qu'un seul résultat et un seul incident.

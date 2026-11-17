@@ -59,6 +59,8 @@ jobs:
   dev:
     name: Deploy dev
     needs: build
+    # Stays green until the AWS settings exist (repository variable AWS_ROLE_ARN, see docs/ci-cd.md)
+    if: vars.AWS_ROLE_ARN != ''
     uses: ./.github/workflows/_deploy-env.yml
     with:
       environment: dev
@@ -71,6 +73,7 @@ jobs:
   prod:
     name: Deploy prod (manual approval)
     needs: dev
+    if: vars.AWS_ROLE_ARN != ''
     uses: ./.github/workflows/_deploy-env.yml
     with:
       environment: production # GitHub environment with required reviewers

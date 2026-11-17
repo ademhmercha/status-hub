@@ -47,6 +47,10 @@ Secret d'environnement (optionnel) : `GOOGLE_CLIENT_SECRET`.
 
 ### 3. Variables du dépôt (Settings → Secrets and variables → Actions → Variables)
 
+**`AWS_ROLE_ARN` doit aussi exister au niveau du dépôt** (mettez-y l'ARN du rôle dev) : c'est elle qui active les jobs de déploiement de `deploy.yml`.
+Tant qu'elle est absente, le dépôt reste vert (seuls build et tests tournent ; dev et prod sont ignorés). Les variables d'environnement `AWS_ROLE_ARN`
+de `dev` et `production` la remplacent dans leurs propres jobs.
+
 Utilisées par le job `plan-dev` de `ci.yml` (il n'a pas d'environnement) : `AWS_PLAN_ROLE_ARN` (sortie `plan_role_arn`),
 `TF_STATE_BUCKET`, `SENDER_EMAIL` et les `ENABLE_*` identiques à dev. Tant que `AWS_PLAN_ROLE_ARN` est vide, le job est ignoré.
 

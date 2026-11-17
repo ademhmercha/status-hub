@@ -71,7 +71,7 @@ export class MonitorForm {
   protected readonly formError = signal<string | null>(null);
   protected readonly loadError = signal<string | null>(null);
 
-  protected model = { name: '', url: '', method: 'GET', intervalMinutes: 1, expectedStatus: 200, timeoutSeconds: 10 };
+  protected model = { name: '', url: '', method: 'GET', intervalMinutes: 5, expectedStatus: 200, timeoutSeconds: 10 };
   protected keyword = '';
 
   constructor() {

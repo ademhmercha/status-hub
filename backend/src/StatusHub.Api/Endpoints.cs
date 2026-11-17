@@ -12,6 +12,8 @@ public static class Endpoints
     public const string DemoPolicy = "demo";
     public const string TokenPolicy = "token";
     public const int MaxAlertsPerAccount = 10;
+    /// <summary>Default for a new monitor: 5 minutes (cost); 1 minute stays possible.</summary>
+    public const int DefaultIntervalMinutes = 5;
 
     public static void MapStatusHub(this WebApplication app)
     {
@@ -99,7 +101,7 @@ public static class Endpoints
             if ((await monitors.ListAsync(u.UserId, ct)).Count >= UptimeMonitor.MaxPerAccount)
                 return Results.Problem($"Limite de {UptimeMonitor.MaxPerAccount} moniteurs atteinte.", statusCode: 409, title: "Limit reached");
             var m = new UptimeMonitor(u.UserId, Guid.NewGuid().ToString("N"), r.Name!.Trim(), r.Url!.Trim(),
-                (r.Method ?? "GET").ToUpperInvariant(), r.IntervalMinutes ?? 1, r.ExpectedStatus ?? 200,
+                (r.Method ?? "GET").ToUpperInvariant(), r.IntervalMinutes ?? DefaultIntervalMinutes, r.ExpectedStatus ?? 200,
                 string.IsNullOrWhiteSpace(r.Keyword) ? null : r.Keyword, r.TimeoutSeconds ?? 10, r.Active ?? true, clock.GetUtcNow());
             await monitors.CreateAsync(m, ct);
             return Results.Created($"/api/v1/monitors/{m.MonitorId}", MonitorDto.From(m));
