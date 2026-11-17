@@ -1,0 +1,49 @@
+name: Rollback
+
+# Moves the "live" alias of a Lambda back to a previous published version (immediate, no rebuild).
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment
+        required: true
+        type: choice
+        options: [dev, production]
+      function:
+        description: Function to roll back
+        required: true
+        type: choice
+        options: [api, scheduler, checker, evaluator, notifier]
+      version:
+        description: Target version number (leave empty to go back to the version before the current one)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  rollback:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: eu-north-1
+      - name: Move the alias
+        run: |
+          ENVNAME="${{ inputs.environment == 'production' && 'prod' || 'dev' }}"
+          FN="statushub-${ENVNAME}-${{ inputs.function }}"
+          CURRENT=$(aws lambda get-alias --function-name "$FN" --name live --query FunctionVersion --output text)
+          TARGET="${{ inputs.version }}"
+          if [[ -z "$TARGET" ]]; then
+            TARGET=$(aws lambda list-versions-by-function --function-name "$FN" --query 'Versions[?Version!=`$LATEST`].Version' --output text \
+              | tr '\t' '\n' | sort -n | awk -v cur="$CURRENT" '$1 < cur' | tail -n 1)
+          fi
+          [[ -n "$TARGET" ]] || { echo "No earlier version found"; exit 1; }
+          echo "$FN: live $CURRENT -> $TARGET"
+          aws lambda update-alias --function-name "$FN" --name live --function-version "$TARGET"
+          echo "### $FN rolled back from v$CURRENT to v$TARGET" >> "$GITHUB_STEP_SUMMARY"
+          echo "Terraform will move the alias again at the next deployment: revert the faulty commit on main." >> "$GITHUB_STEP_SUMMARY"

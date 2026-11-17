@@ -105,6 +105,7 @@ locals {
   functions = {
     api = {
       runtime = "dotnet10"
+      arch    = "arm64"
       handler = "StatusHub.Api"
       memory  = 512
       timeout = 15
@@ -120,6 +121,7 @@ locals {
     }
     scheduler = {
       runtime = "dotnet10"
+      arch    = "arm64"
       handler = local.dotnet_handler["scheduler"]
       memory  = 256
       timeout = 30
@@ -130,6 +132,7 @@ locals {
     }
     checker = {
       runtime = "provided.al2023" # Native AOT custom runtime
+      arch    = "x86_64"          # built by the Amazon Linux 2023 x64 container (build-tools/aot)
       handler = "bootstrap"
       memory  = 256
       timeout = 45
@@ -140,6 +143,7 @@ locals {
     }
     evaluator = {
       runtime = "dotnet10"
+      arch    = "arm64"
       handler = local.dotnet_handler["evaluator"]
       memory  = 256
       timeout = 30
@@ -150,6 +154,7 @@ locals {
     }
     notifier = {
       runtime = "dotnet10"
+      arch    = "arm64"
       handler = local.dotnet_handler["notifier"]
       memory  = 256
       timeout = 120
@@ -294,7 +299,7 @@ resource "aws_lambda_function" "this" {
   role          = aws_iam_role.this[each.key].arn
   runtime       = each.value.runtime
   handler       = each.value.handler
-  architectures = ["arm64"]
+  architectures = [each.value.arch]
   memory_size   = each.value.memory
   timeout       = each.value.timeout
 

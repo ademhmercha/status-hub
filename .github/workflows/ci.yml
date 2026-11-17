@@ -1,0 +1,178 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: 1
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+
+jobs:
+  backend:
+    name: Backend (build, unit + integration tests, coverage)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build (warnings are errors)
+        run: dotnet build backend/StatusHub.sln -c Release
+      - name: Unit + integration tests (integration tests use DynamoDB Local through Testcontainers)
+        run: >
+          dotnet test backend/StatusHub.sln -c Release --no-build
+          --collect:"XPlat Code Coverage" --results-directory "$RUNNER_TEMP/coverage"
+          --logger "trx;LogFileName=results.trx"
+      - name: Coverage summary
+        if: always()
+        run: |
+          dotnet tool install --global dotnet-reportgenerator-globaltool
+          reportgenerator -reports:"$RUNNER_TEMP/coverage/**/coverage.cobertura.xml" -targetdir:"$RUNNER_TEMP/report" \
+            -reporttypes:"MarkdownSummaryGithub;Cobertura" -assemblyfilters:"+StatusHub.*;-*Tests"
+          cat "$RUNNER_TEMP/report/SummaryGithub.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: ${{ runner.temp }}/report
+          retention-days: 14
+
+  frontend:
+    name: Frontend (build + Vitest)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test -- --watch=false
+      - run: npm run build
+
+  security:
+    name: Trivy (files + dependencies)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy filesystem scan (vulnerable dependencies, committed secrets, misconfigurations)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          skip-dirs: frontend/node_modules,infra/**/.terraform
+
+  terraform:
+    name: Terraform (fmt, validate, tflint, Checkov)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.10"
+      - name: fmt
+        run: terraform fmt -check -recursive infra
+      - name: validate every root module
+        run: |
+          for d in infra/bootstrap infra/envs/dev infra/envs/prod; do
+            echo "::group::$d"
+            terraform -chdir="$d" init -backend=false -input=false
+            terraform -chdir="$d" validate
+            echo "::endgroup::"
+          done
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+      - name: tflint
+        working-directory: infra
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          tflint --init
+          tflint --recursive --config "$GITHUB_WORKSPACE/infra/.tflint.hcl"
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: infra
+          framework: terraform
+          quiet: true
+          # Deliberate choices for a cost-capped project (no VPC/NAT, no customer-managed keys, no WAF):
+          skip_check: CKV_AWS_117,CKV_AWS_116,CKV_AWS_115,CKV_AWS_173,CKV_AWS_272,CKV_AWS_50,CKV_AWS_144,CKV_AWS_145,CKV_AWS_18,CKV_AWS_21,CKV2_AWS_61,CKV2_AWS_62,CKV2_AWS_6,CKV_AWS_68,CKV2_AWS_47,CKV2_AWS_32,CKV_AWS_310,CKV_AWS_374,CKV_AWS_86,CKV2_AWS_42,CKV_AWS_309,CKV_AWS_120,CKV_AWS_76,CKV_AWS_27,CKV_AWS_119,CKV_AWS_158,CKV_AWS_338,CKV_AWS_28
+
+  plan-dev:
+    name: terraform plan (dev) commented on the PR
+    runs-on: ubuntu-24.04
+    needs: [backend, terraform]
+    # Same-repository PRs only (forks get no OIDC token), and only once the AWS side is configured.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.AWS_PLAN_ROLE_ARN != ''
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_aws_profile: ""
+      TF_VAR_sender_email: ${{ vars.SENDER_EMAIL }}
+      TF_VAR_enable_ses: ${{ vars.ENABLE_SES || 'true' }}
+      TF_VAR_enable_xray: ${{ vars.ENABLE_XRAY || 'true' }}
+      TF_VAR_enable_pitr: ${{ vars.ENABLE_PITR || 'false' }}
+      TF_VAR_enable_cloudfront: ${{ vars.ENABLE_CLOUDFRONT || 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: eu-north-1
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.10"
+          terraform_wrapper: false
+      - name: Package Lambdas (the Checker AOT binary is a placeholder in plans, so its code change is not shown)
+        run: scripts/package-lambdas.sh --placeholder
+      - name: terraform plan
+        id: plan
+        working-directory: infra/envs/dev
+        run: |
+          terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=eu-north-1"
+          set +e
+          terraform plan -input=false -no-color -lock=false -detailed-exitcode -var "artifacts_dir=$GITHUB_WORKSPACE/build/lambda" > "$RUNNER_TEMP/plan.txt" 2>&1
+          code=$?
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+          [[ $code -eq 1 ]] && { cat "$RUNNER_TEMP/plan.txt"; exit 1; }
+          exit 0
+      - name: Comment the plan on the pull request
+        if: always() && steps.plan.outcome != 'skipped'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = process.env.RUNNER_TEMP + '/plan.txt';
+            let plan = fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : 'No plan output.';
+            if (plan.length > 60000) plan = plan.slice(0, 60000) + '\n... (truncated, see the job log)';
+            const code = '${{ steps.plan.outputs.exitcode }}';
+            const status = code === '2' ? 'Changes to apply' : code === '0' ? 'No changes' : 'Plan failed';
+            const marker = '<!-- statushub-terraform-plan -->';
+            const body = `${marker}\n### Terraform plan (dev): ${status}\n<details><summary>Show plan</summary>\n\n\`\`\`hcl\n${plan}\n\`\`\`\n</details>`;
+            const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: context.issue.number });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
