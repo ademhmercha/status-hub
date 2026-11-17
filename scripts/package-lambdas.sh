@@ -24,7 +24,8 @@ done
 rm -rf "$OUT" "$WORK"
 mkdir -p "$OUT" "$WORK"
 
-zip_dir() { # zip_dir <dir> <zip>
+zip_dir() { # zip_dir <dir> <zip>  (symbols are not shipped; they are not disabled at build time because AspectInjector rejects a missing/stale pdb)
+  find "$1" -name "*.pdb" -delete
   (cd "$1" && zip -q -r -X "$2" .)
 }
 
@@ -38,7 +39,7 @@ declare -A PROJECTS=(
 for name in "${!PROJECTS[@]}"; do
   echo ">> $name"
   dotnet publish "$ROOT/backend/src/${PROJECTS[$name]}" -c Release -r linux-arm64 --self-contained false \
-    -p:PublishReadyToRun=true -p:DebugType=none -p:InformationalVersion="${GITHUB_SHA:-local}" -o "$WORK/$name" --nologo -v:q
+    -p:PublishReadyToRun=true -p:InformationalVersion="${GITHUB_SHA:-local}" -o "$WORK/$name" --nologo -v:q
   rm -f "$WORK/$name"/appsettings.Development.json
   zip_dir "$WORK/$name" "$OUT/$name.zip"
 done
@@ -60,7 +61,7 @@ zip_dir "$WORK/checker" "$OUT/checker.zip"
 if $JIT_CHECKER; then
   echo ">> checker-jit (self-contained, ReadyToRun, no AOT)"
   dotnet publish "$ROOT/backend/src/StatusHub.Functions.Checker" -c Release -r linux-x64 --self-contained true \
-    -p:PublishAot=false -p:PublishReadyToRun=true -p:DebugType=none -o "$WORK/checker-jit" --nologo -v:q
+    -p:PublishAot=false -p:PublishReadyToRun=true -o "$WORK/checker-jit" --nologo -v:q
   chmod +x "$WORK/checker-jit/bootstrap"
   zip_dir "$WORK/checker-jit" "$OUT/checker-jit.zip"
 fi
