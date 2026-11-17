@@ -61,6 +61,18 @@ variable "google_client_secret" {
   sensitive = true
 }
 
+variable "enable_observability" {
+  description = "CloudWatch dashboard, alarms and SNS topic"
+  type        = bool
+  default     = true
+}
+
+variable "alarm_email" {
+  description = "Receives the alarms (SNS sends a confirmation email)"
+  type        = string
+  default     = ""
+}
+
 variable "schedule_enabled" {
   type    = bool
   default = true
@@ -161,6 +173,7 @@ module "functions" {
   auth_audience           = module.auth.client_id
   cors_origins            = join(",", local.cors)
   checker_max_concurrency = var.checker_max_concurrency
+  metrics_namespace       = "StatusHub/${var.environment}"
 }
 
 module "api" {
@@ -174,6 +187,19 @@ module "api" {
   jwt_audience       = module.auth.client_id
   cors_origins       = length(local.cors) == 0 ? ["http://localhost:4200"] : local.cors
   log_retention_days = var.log_retention_days
+}
+
+module "observability" {
+  count  = var.enable_observability ? 1 : 0
+  source = "../observability"
+
+  name_prefix       = local.name_prefix
+  metrics_namespace = "StatusHub/${var.environment}"
+  function_names    = module.functions.function_names
+  queue_names       = module.messaging.queue_names
+  dlq_names         = module.messaging.dlq_names
+  api_id            = module.api.api_id
+  alarm_email       = var.alarm_email
 }
 
 module "scheduler" {
@@ -237,6 +263,14 @@ output "queue_urls" {
 
 output "dlq_urls" {
   value = module.messaging.dlq_urls
+}
+
+output "dashboard_name" {
+  value = var.enable_observability ? module.observability[0].dashboard_name : ""
+}
+
+output "alarm_topic_arn" {
+  value = var.enable_observability ? module.observability[0].alarm_topic_arn : ""
 }
 
 output "table_name" {

@@ -1,6 +1,7 @@
 using Amazon.EventBridge;
 using Amazon.SimpleEmailV2;
 using Amazon.SQS;
+using AWS.Lambda.Powertools.Logging;
 using Microsoft.Extensions.Logging;
 using StatusHub.Domain;
 using Amazon.DynamoDBv2;
@@ -79,11 +80,13 @@ public static class DependencyInjection
     {
         var config = new ConfigurationBuilder().AddEnvironmentVariables().Build();
         var s = new ServiceCollection();
-        s.AddLogging(b => b.AddSimpleConsole(o => o.SingleLine = true));
+        s.AddLogging(b => b.AddPowertoolsLogger(c => { }));
+        s.AddSingleton<IStatusMetrics, PowertoolsStatusMetrics>();
         s.AddStatusHubStages();
         configure(s, config);
         return s.BuildServiceProvider();
     }
 }
+
 
 

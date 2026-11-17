@@ -39,7 +39,8 @@ branche ne peut déployer.
 | `AWS_ROLE_ARN` | sortie `deploy_role_arns` du bootstrap (`dev` pour l'environnement dev, `prod` pour `production`) |
 | `TF_STATE_BUCKET` | sortie `state_bucket` du bootstrap |
 | `SENDER_EMAIL` | adresse expéditrice des alertes (SES vous envoie un lien de vérification) |
-| `ENABLE_SES`, `ENABLE_XRAY`, `ENABLE_CLOUDFRONT`, `ENABLE_PITR` | `false` pour tout service refusé par `check-free-plan.sh` (défaut : SES/X-Ray/CloudFront `true`, PITR `false`) |
+| `ALARM_EMAIL` | adresse qui reçoit les alarmes CloudWatch (confirmer l'abonnement SNS) |
+| `ENABLE_SES`, `ENABLE_XRAY`, `ENABLE_CLOUDFRONT`, `ENABLE_PITR`, `ENABLE_OBSERVABILITY` | `false` pour tout service refusé par `check-free-plan.sh` (défaut : SES/X-Ray/CloudFront `true`, PITR `false`) |
 | `ENABLE_GOOGLE`, `GOOGLE_CLIENT_ID` | optionnel (connexion Google) |
 
 Secret d'environnement (optionnel) : `GOOGLE_CLIENT_SECRET`.

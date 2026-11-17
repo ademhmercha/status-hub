@@ -12,6 +12,7 @@ public sealed class SchedulerStage(
     IMonitorRepository monitors,
     IIdempotencyStore idempotency,
     IMessagePublisher<CheckMessage> checks,
+    IStatusMetrics metrics,
     ILogger<SchedulerStage> log) : IStage<SchedulerTick>
 {
     public static readonly TimeSpan KeyTtl = TimeSpan.FromHours(1);
@@ -20,30 +21,34 @@ public sealed class SchedulerStage(
     {
         var due = await monitors.GetDueAsync(tick.Minute, ct);
         var failures = new List<Exception>();
+        var published = 0;
         foreach (var chunk in due.Chunk(25))
         {
             var results = await Task.WhenAll(chunk.Select(m => ScheduleAsync(m, tick.Minute, ct)));
-            failures.AddRange(results.Where(e => e is not null)!);
+            published += results.Count(r => r.Published);
+            failures.AddRange(results.Where(r => r.Error is not null).Select(r => r.Error!));
         }
-        log.LogInformation("Scheduled {Due} due monitors for {Minute}", due.Count, tick.Minute);
+        // Denominator of the SLO: every check that must run this minute (published now, or already published by an earlier invocation).
+        metrics.Count(MetricNames.ChecksScheduled, due.Count - failures.Count);
+        log.LogInformation("Scheduled {Published} of {Due} due monitors for {Minute}", published, due.Count, tick.Minute);
         if (failures.Count > 0) throw new AggregateException("Some checks could not be scheduled.", failures);
     }
 
-    private async Task<Exception?> ScheduleAsync(UptimeMonitor m, DateTimeOffset minute, CancellationToken ct)
+    private async Task<(bool Published, Exception? Error)> ScheduleAsync(UptimeMonitor m, DateTimeOffset minute, CancellationToken ct)
     {
         var msg = new CheckMessage(m.AccountId, m.MonitorId, minute, m.Url, m.Method, m.ExpectedStatus, m.Keyword, m.TimeoutSeconds);
         // Idempotent: the same monitor + minute is published at most once, even if the Scheduler is invoked twice.
-        if (!await idempotency.TryAcquireAsync(msg.IdempotencyKey, KeyTtl, ct)) return null;
+        if (!await idempotency.TryAcquireAsync(msg.IdempotencyKey, KeyTtl, ct)) return (false, null);
         try
         {
             await checks.PublishAsync(msg, ct);
-            return null;
+            return (true, null);
         }
         catch (Exception ex)
         {
             await idempotency.ReleaseAsync(msg.IdempotencyKey, CancellationToken.None); // allow a retry
             log.LogError(ex, "Failed to publish check for {MonitorId}", m.MonitorId);
-            return ex;
+            return (false, ex);
         }
     }
 }
@@ -54,10 +59,25 @@ public sealed class CheckerStage(
     HttpClient http,
     IMessagePublisher<CheckResultMessage> results,
     TimeProvider clock,
-    CheckerOptions options) : IStage<CheckMessage>
+    CheckerOptions options,
+    IStatusMetrics metrics,
+    ILogger<CheckerStage> log) : IStage<CheckMessage>
 {
-    public async Task HandleAsync(CheckMessage message, CancellationToken ct) =>
-        await results.PublishAsync(await CheckAsync(message, ct), ct);
+    public async Task HandleAsync(CheckMessage message, CancellationToken ct)
+    {
+        var result = await CheckAsync(message, ct);
+
+        var delay = result.CheckedAt - message.Minute;
+        metrics.Count(MetricNames.ChecksExecuted);
+        metrics.Count(delay <= MetricNames.OnTimeThreshold ? MetricNames.ChecksOnTime : MetricNames.ChecksLate);
+        metrics.Seconds(MetricNames.CheckDelaySeconds, Math.Max(0, delay.TotalSeconds));
+        metrics.Milliseconds(MetricNames.CheckLatencyMs, result.LatencyMs);
+        if (!result.Success) metrics.Count(MetricNames.ChecksFailed);
+        log.LogInformation("Check {CorrelationId} {Outcome} in {LatencyMs} ms (delay {DelaySeconds:F1} s, error {Error})",
+            message.IdempotencyKey, result.Success ? "up" : "down", result.LatencyMs, delay.TotalSeconds, result.Error);
+
+        await results.PublishAsync(result, ct);
+    }
 
     public async Task<CheckResultMessage> CheckAsync(CheckMessage m, CancellationToken ct)
     {
@@ -134,6 +154,7 @@ public sealed class EvaluatorStage(
     IIncidentRepository incidents,
     IIdempotencyStore idempotency,
     IMessagePublisher<IncidentEvent> events,
+    IStatusMetrics metrics,
     ILogger<EvaluatorStage> log) : IStage<CheckResultMessage>
 {
     public async Task HandleAsync(CheckResultMessage r, CancellationToken ct)
@@ -146,6 +167,7 @@ public sealed class EvaluatorStage(
         {
             var monitor = await monitors.GetAsync(r.AccountId, r.MonitorId, ct);
             if (monitor is null) return; // deleted meanwhile
+            metrics.Count(MetricNames.ResultsProcessed);
 
             await results.AddAsync(new CheckResult(r.MonitorId, r.CheckedAt, r.Success, r.StatusCode, r.LatencyMs, r.Error, r.ErrorMessage), ct);
             await aggregates.RecordAsync(r.MonitorId, DateOnly.FromDateTime(r.CheckedAt.UtcDateTime), r.Success, r.LatencyMs, ct);
@@ -160,6 +182,7 @@ public sealed class EvaluatorStage(
                     next = next with { OpenIncidentId = incident.IncidentId };
                     await monitors.UpdateAsync(next, ct);
                     await events.PublishAsync(Event(next, incident.IncidentId, IncidentEventType.Opened, r.CheckedAt, cause, null), ct);
+                    metrics.Count(MetricNames.IncidentsOpened);
                     log.LogInformation("Incident opened for {MonitorId}: {Cause}", r.MonitorId, cause);
                     break;
                 case Transition.Resolved:
@@ -167,6 +190,7 @@ public sealed class EvaluatorStage(
                     await incidents.ResolveAsync(r.MonitorId, monitor.OpenIncidentId!, r.CheckedAt, ct);
                     await monitors.UpdateAsync(next, ct);
                     await events.PublishAsync(Event(next, monitor.OpenIncidentId!, IncidentEventType.Resolved, r.CheckedAt, open?.Cause, open is null ? null : r.CheckedAt - open.OpenedAt), ct);
+                    metrics.Count(MetricNames.IncidentsResolved);
                     log.LogInformation("Incident resolved for {MonitorId}", r.MonitorId);
                     break;
                 default:
@@ -252,7 +276,7 @@ public sealed class AlertDispatcher(IEmailSender email, IWebhookSender webhook, 
         StatusHubJson.Default.WebhookPayload);
 }
 
-public sealed class NotifierStage(IAlertRepository alerts, AlertDispatcher dispatcher, ILogger<NotifierStage> log) : IStage<IncidentEvent>
+public sealed class NotifierStage(IAlertRepository alerts, AlertDispatcher dispatcher, IStatusMetrics metrics, ILogger<NotifierStage> log) : IStage<IncidentEvent>
 {
     public async Task HandleAsync(IncidentEvent e, CancellationToken ct)
     {
@@ -260,10 +284,15 @@ public sealed class NotifierStage(IAlertRepository alerts, AlertDispatcher dispa
         var failed = 0;
         foreach (var sub in subs)
         {
-            try { await dispatcher.DispatchAsync(sub, e, ct); }
+            try
+            {
+                await dispatcher.DispatchAsync(sub, e, ct);
+                metrics.Count(MetricNames.AlertsSent);
+            }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 failed++;
+                metrics.Count(MetricNames.AlertsFailed);
                 log.LogError(ex, "Alert delivery failed for subscription {SubscriptionId} after retries", sub.SubscriptionId);
             }
         }

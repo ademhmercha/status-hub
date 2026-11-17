@@ -45,6 +45,9 @@ module "stack" {
   google_client_id     = var.google_client_id
   google_client_secret = var.google_client_secret
 
+  enable_observability = var.enable_observability
+  alarm_email          = var.alarm_email
+
   schedule_enabled        = var.schedule_enabled
   checker_max_concurrency = var.checker_max_concurrency
   extra_cors_origins      = ["http://localhost:4200"]

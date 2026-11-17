@@ -17,6 +17,10 @@ public sealed class SqsPublisher<T>(IAmazonSQS sqs, string queueUrl, JsonTypeInf
         {
             QueueUrl = queueUrl,
             MessageBody = JsonSerializer.Serialize(message, info),
+            // Continues the X-Ray trace in the consumer Lambda (works without the X-Ray SDK, so also in Native AOT).
+            MessageSystemAttributes = Telemetry.TraceHeader is { Length: > 0 } trace
+                ? new Dictionary<string, MessageSystemAttributeValue> { ["AWSTraceHeader"] = new() { DataType = "String", StringValue = trace } }
+                : null,
         }, ct);
 }
 
@@ -32,6 +36,7 @@ public sealed class EventBridgeIncidentPublisher(IAmazonEventBridge events, stri
                 new PutEventsRequestEntry
                 {
                     EventBusName = busName,
+                    TraceHeader = Telemetry.TraceHeader,
                     Source = "statushub",
                     DetailType = message.Type == IncidentEventType.Opened ? "IncidentOpened" : "IncidentResolved",
                     Detail = JsonSerializer.Serialize(message, StatusHubJson.Default.IncidentEvent),
@@ -65,11 +70,13 @@ public static class SqsBatch
                 var message = JsonSerializer.Deserialize(body, info) ?? throw new JsonException("Empty message.");
                 await stage.HandleAsync(message, ct);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                AWS.Lambda.Powertools.Logging.Logger.LogError(ex, "Record {MessageId} failed and will be retried", record.MessageId);
                 failures.Add(new SQSBatchResponse.BatchItemFailure { ItemIdentifier = record.MessageId });
             }
         }
         return new SQSBatchResponse { BatchItemFailures = failures };
     }
 }
+

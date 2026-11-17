@@ -133,6 +133,8 @@ jobs:
       TF_VAR_enable_xray: ${{ vars.ENABLE_XRAY || 'true' }}
       TF_VAR_enable_pitr: ${{ vars.ENABLE_PITR || 'false' }}
       TF_VAR_enable_cloudfront: ${{ vars.ENABLE_CLOUDFRONT || 'true' }}
+      TF_VAR_enable_observability: ${{ vars.ENABLE_OBSERVABILITY || 'true' }}
+      TF_VAR_alarm_email: ${{ vars.ALARM_EMAIL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4

@@ -26,7 +26,8 @@ public static class Program
     }
 
     public static Task<SQSBatchResponse> HandleAsync(SQSEvent evt, ILambdaContext context) =>
-        SqsBatch.ProcessAsync(evt, Services.GetRequiredService<IStage<CheckMessage>>(), StatusHubJson.Default.CheckMessage, CancellationToken.None);
+        Telemetry.RunAsync(context, () =>
+            SqsBatch.ProcessAsync(evt, Services.GetRequiredService<IStage<CheckMessage>>(), StatusHubJson.Default.CheckMessage, CancellationToken.None));
 }
 
 [System.Text.Json.Serialization.JsonSerializable(typeof(SQSEvent))]

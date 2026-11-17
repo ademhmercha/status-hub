@@ -37,3 +37,11 @@ output "dlq_urls" {
 output "table_name" {
   value = module.stack.table_name
 }
+
+output "dashboard_name" {
+  value = module.stack.dashboard_name
+}
+
+output "alarm_topic_arn" {
+  value = module.stack.alarm_topic_arn
+}

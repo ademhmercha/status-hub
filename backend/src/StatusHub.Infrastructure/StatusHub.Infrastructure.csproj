@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <PackageReference Include="Amazon.Lambda.SQSEvents" Version="3.0.1" />
+    <PackageReference Include="AWS.Lambda.Powertools.Logging" Version="3.2.2" />
+    <PackageReference Include="AWS.Lambda.Powertools.Metrics" Version="3.2.2" />
     <PackageReference Include="AWSSDK.DynamoDBv2" Version="4.1.0.1" />
     <PackageReference Include="AWSSDK.EventBridge" Version="4.1.0.1" />
     <PackageReference Include="AWSSDK.SimpleEmailV2" Version="4.1.0.1" />

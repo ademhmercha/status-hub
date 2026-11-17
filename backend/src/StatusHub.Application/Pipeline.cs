@@ -1,5 +1,6 @@
 ﻿using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using StatusHub.Domain;
 
 namespace StatusHub.Application;
@@ -67,6 +68,7 @@ public static class CoreServiceCollectionExtensions
     /// <summary>Registers the 4 stages. Publishers, repositories, HttpClient and senders come from the host.</summary>
     public static IServiceCollection AddStatusHubStages(this IServiceCollection s)
     {
+        s.TryAddSingleton<IStatusMetrics, NullStatusMetrics>(); // Lambdas replace it with the EMF implementation
         s.AddTransient<IStage<SchedulerTick>, SchedulerStage>();
         s.AddTransient<IStage<CheckMessage>, CheckerStage>();
         s.AddTransient<IStage<CheckResultMessage>, EvaluatorStage>();

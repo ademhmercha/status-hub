@@ -112,3 +112,13 @@ public sealed class StubHandler(Func<HttpRequestMessage, CancellationToken, Task
         new((_, _) => Task.FromResult(new HttpResponseMessage((System.Net.HttpStatusCode)status) { Content = new StringContent(body) }));
     public static StubHandler Throwing(Exception ex) => new((_, _) => throw ex);
 }
+
+public sealed class RecordingMetrics : StatusHub.Application.IStatusMetrics
+{
+    public List<(string Name, double Value, string Unit)> Items { get; } = [];
+    public void Count(string name, double value = 1) => Items.Add((name, value, "Count"));
+    public void Milliseconds(string name, double value) => Items.Add((name, value, "Milliseconds"));
+    public void Seconds(string name, double value) => Items.Add((name, value, "Seconds"));
+    public double Sum(string name) => Items.Where(i => i.Name == name).Sum(i => i.Value);
+    public bool Has(string name) => Items.Any(i => i.Name == name);
+}

@@ -17,7 +17,7 @@ public class CheckerStageTests
     private static (CheckerStage Stage, Recorder<CheckResultMessage> Out) Build(HttpMessageHandler h, bool allowPrivate = false)
     {
         var rec = new Recorder<CheckResultMessage>();
-        return (new CheckerStage(new HttpClient(h), rec, TimeProvider.System, new CheckerOptions(allowPrivate)), rec);
+        return (new CheckerStage(new HttpClient(h), rec, TimeProvider.System, new CheckerOptions(allowPrivate), new NullStatusMetrics(), NullLogger<CheckerStage>.Instance), rec);
     }
 
     [Fact]
@@ -184,7 +184,7 @@ public class SchedulerStageTests
         await monitors.CreateAsync(M("m2"));
         await monitors.CreateAsync(M("paused", active: false));
         var rec = new Recorder<CheckMessage>();
-        var stage = new SchedulerStage(monitors, new FakeIdempotency(), rec, NullLogger<SchedulerStage>.Instance);
+        var stage = new SchedulerStage(monitors, new FakeIdempotency(), rec, new NullStatusMetrics(), NullLogger<SchedulerStage>.Instance);
 
         await stage.HandleAsync(new SchedulerTick(Minute), default);
 
@@ -200,7 +200,7 @@ public class SchedulerStageTests
         var monitors = new FakeMonitors();
         await monitors.CreateAsync(M("m1"));
         var rec = new Recorder<CheckMessage>();
-        var stage = new SchedulerStage(monitors, new FakeIdempotency(), rec, NullLogger<SchedulerStage>.Instance);
+        var stage = new SchedulerStage(monitors, new FakeIdempotency(), rec, new NullStatusMetrics(), NullLogger<SchedulerStage>.Instance);
 
         await stage.HandleAsync(new SchedulerTick(Minute), default);
         await stage.HandleAsync(new SchedulerTick(Minute), default);
@@ -217,7 +217,7 @@ public class SchedulerStageTests
         await monitors.CreateAsync(M("m1"));
         var idem = new FakeIdempotency();
         var rec = new Recorder<CheckMessage> { FailWith = new InvalidOperationException("sqs down") };
-        var stage = new SchedulerStage(monitors, idem, rec, NullLogger<SchedulerStage>.Instance);
+        var stage = new SchedulerStage(monitors, idem, rec, new NullStatusMetrics(), NullLogger<SchedulerStage>.Instance);
 
         await Assert.ThrowsAsync<AggregateException>(() => stage.HandleAsync(new SchedulerTick(Minute), default));
         Assert.Empty(idem.Keys);
@@ -252,7 +252,7 @@ public class EvaluatorStageTests
         public Ctx()
         {
             Monitors.Items["m"] = new UptimeMonitor("a", "m", "Site", "https://x.io", "GET", 1, 200, null, 5, true, T0);
-            Stage = new EvaluatorStage(Monitors, Results, Aggregates, Incidents, Idem, Events, NullLogger<EvaluatorStage>.Instance);
+            Stage = new EvaluatorStage(Monitors, Results, Aggregates, Incidents, Idem, Events, new NullStatusMetrics(), NullLogger<EvaluatorStage>.Instance);
         }
 
         public Task Feed(int minute, bool ok, ErrorKind e = ErrorKind.None, int? status = 200) =>
@@ -364,7 +364,7 @@ public class NotifierStageTests
         new DateTimeOffset(2026, 1, 1, 10, 0, 0, TimeSpan.Zero), "Timeout", null);
 
     private static NotifierStage Build(FakeEmail email, FakeWebhook hook, NotifierOptions? options = null, params AlertSubscription[] subs) =>
-        new(new FakeAlerts(subs), new AlertDispatcher(email, hook, options ?? new NotifierOptions([])), NullLogger<NotifierStage>.Instance);
+        new(new FakeAlerts(subs), new AlertDispatcher(email, hook, options ?? new NotifierOptions([])), new NullStatusMetrics(), NullLogger<NotifierStage>.Instance);
 
     private static AlertSubscription Email(string id = "e1", bool active = true) => new("a", id, AlertType.Email, "me@x.io", null, active);
     private static AlertSubscription Hook(string id = "w1") => new("a", id, AlertType.Webhook, "https://hook.example/x", "s3cret", true);

@@ -63,3 +63,14 @@ variable "checker_max_concurrency" {
   type    = number
   default = 5
 }
+
+variable "enable_observability" {
+  type    = bool
+  default = true
+}
+
+variable "alarm_email" {
+  description = "Receives the CloudWatch alarms"
+  type        = string
+  default     = ""
+}

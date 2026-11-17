@@ -1,13 +1,25 @@
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Amazon.DynamoDBv2;
+using Amazon.Lambda.Core;
+using AWS.Lambda.Powertools.Logging;
 using StatusHub.Api;
 using StatusHub.Infrastructure;
 using StatusHub.Infrastructure.Dynamo;
 using StatusHub.LocalHost;
+using StatusHub.Observability;
 
 var builder = WebApplication.CreateBuilder(args);
 var cfg = builder.Configuration;
+
+// In AWS: structured JSON logs with correlation id (Powertools), X-Ray subsegments for AWS SDK calls.
+var inLambda = Environment.GetEnvironmentVariable("AWS_LAMBDA_FUNCTION_NAME") is not null;
+if (inLambda)
+{
+    TracingSetup.Register();
+    builder.Logging.ClearProviders();
+    builder.Logging.AddPowertoolsLogger(c => { });
+}
 
 builder.Services.AddAWSLambdaHosting(LambdaEventSource.HttpApi);
 builder.Services.AddStatusHubDynamo(cfg);
@@ -49,6 +61,17 @@ if (localWorker)
     // Local only: Terraform owns the table in AWS.
     await TableBootstrapper.EnsureAsync(app.Services.GetRequiredService<IAmazonDynamoDB>(), app.Services.GetRequiredService<DynamoOptions>().TableName);
 }
+
+// Correlation id on every response and log line; EMF metrics (cold start) flushed at the end of each request.
+app.Use(async (ctx, next) =>
+{
+    var lambdaContext = ctx.Items["LambdaContext"] as ILambdaContext;
+    ctx.Response.Headers[Telemetry.CorrelationHeader] = Telemetry.CorrelationId(lambdaContext?.AwsRequestId) ?? ctx.TraceIdentifier;
+    if (!inLambda) { await next(); return; }
+    Telemetry.Begin(lambdaContext);
+    try { await next(); }
+    finally { Telemetry.End(); }
+});
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();

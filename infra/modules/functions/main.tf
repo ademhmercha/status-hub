@@ -85,6 +85,12 @@ variable "checker_max_concurrency" {
   default     = 5
 }
 
+variable "metrics_namespace" {
+  description = "CloudWatch namespace for the EMF business metrics (POWERTOOLS_METRICS_NAMESPACE)"
+  type        = string
+  default     = "StatusHub"
+}
+
 variable "extra_environment" {
   description = "Extra environment variables for every function (e.g. POWERTOOLS_*)"
   type        = map(string)
@@ -95,9 +101,9 @@ locals {
   dotnet_handler = { for f in ["Scheduler", "Evaluator", "Notifier"] : lower(f) => "StatusHub.Functions.${f}::StatusHub.Functions.${f}.Function::HandleAsync" }
 
   base_env = merge({
-    POWERTOOLS_SERVICE_NAME = "statushub"
-    POWERTOOLS_LOG_LEVEL    = "Information"
-    DOTNET_TieredPGO        = "0"
+    POWERTOOLS_METRICS_NAMESPACE = var.metrics_namespace
+    POWERTOOLS_LOG_LEVEL         = "Information"
+    DOTNET_TieredPGO             = "0"
   }, var.extra_environment)
 
   email_env = var.email_from == "" ? {} : { Email__Provider = "Ses", Email__From = var.email_from }
@@ -319,7 +325,8 @@ resource "aws_lambda_function" "this" {
   }
 
   environment {
-    variables = each.value.env
+    # POWERTOOLS_SERVICE_NAME = the "Service" dimension of the metrics and the service field of every log line
+    variables = merge(each.value.env, { POWERTOOLS_SERVICE_NAME = each.key })
   }
 
   depends_on = [aws_iam_role_policy.this]
