@@ -1,0 +1,55 @@
+terraform {
+  required_version = ">= 1.10"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+
+  # Values come from backend.hcl (local) or -backend-config flags (CI). See backend.hcl.example.
+  backend "s3" {
+    key          = "envs/dev/terraform.tfstate"
+    use_lockfile = true
+    encrypt      = true
+  }
+}
+
+provider "aws" {
+  region  = "eu-north-1"
+  profile = var.aws_profile == "" ? null : var.aws_profile
+
+  default_tags {
+    tags = {
+      Project     = "StatusHub"
+      Environment = "dev"
+      ManagedBy   = "terraform"
+    }
+  }
+}
+
+module "stack" {
+  source = "../../modules/stack"
+
+  environment   = "dev"
+  artifacts_dir = var.artifacts_dir
+  sender_email  = var.sender_email
+
+  enable_ses        = var.enable_ses
+  enable_xray       = var.enable_xray
+  enable_pitr       = var.enable_pitr
+  enable_cloudfront = var.enable_cloudfront
+
+  enable_google        = var.enable_google
+  google_client_id     = var.google_client_id
+  google_client_secret = var.google_client_secret
+
+  schedule_enabled        = var.schedule_enabled
+  checker_max_concurrency = var.checker_max_concurrency
+  extra_cors_origins      = ["http://localhost:4200"]
+
+  # dev is disposable
+  deletion_protection = false
+  force_destroy_web   = true
+}

@@ -35,3 +35,8 @@ appsettings.Local.json
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Terraform local inputs
+backend.hcl
+build/
+tfplan

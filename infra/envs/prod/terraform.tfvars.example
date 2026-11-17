@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars (ignored by git). Contains no secret.
+sender_email = "you@example.com"
+
+# Set to false what check-free-plan.sh reports as REFUSE:
+# enable_ses        = false
+# enable_xray       = false
+# enable_cloudfront = false
+# enable_pitr       = true  # recommended in prod if your account allows it
