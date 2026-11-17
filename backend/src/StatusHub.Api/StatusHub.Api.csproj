@@ -3,6 +3,13 @@
   <ItemGroup>
     <ProjectReference Include="..\StatusHub.Infrastructure\StatusHub.Infrastructure.csproj" />
     <ProjectReference Include="..\StatusHub.LocalHost\StatusHub.LocalHost.csproj" />
+    <ProjectReference Include="..\StatusHub.Application\StatusHub.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Amazon.Lambda.AspNetCoreServer.Hosting" Version="2.2.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.*" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.*" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -24,6 +24,11 @@ public sealed class DynamoFixture : IAsyncLifetime
         ServiceUrl = $"http://{_container.Hostname}:{_container.GetMappedPublicPort(8000)}";
         Client = new AmazonDynamoDBClient(new BasicAWSCredentials("local", "local"),
             new AmazonDynamoDBConfig { ServiceURL = ServiceUrl, AuthenticationRegion = "eu-north-1" });
+        for (var i = 0; i < 60; i++) // wait until the endpoint really answers
+        {
+            try { await Client.ListTablesAsync(); break; }
+            catch (Exception) { await Task.Delay(250); }
+        }
     }
 
     public async Task<(DynamoOptions Options, string Table)> NewTableAsync()
@@ -42,3 +47,4 @@ public sealed class DynamoFixture : IAsyncLifetime
 
 [CollectionDefinition("dynamo")]
 public sealed class DynamoCollection : ICollectionFixture<DynamoFixture>;
+
