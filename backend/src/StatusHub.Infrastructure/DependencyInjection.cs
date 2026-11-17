@@ -63,12 +63,20 @@ public static class DependencyInjection
     }
 
     /// <summary>SQS publishers for checks/results and the EventBridge publisher for incident events.</summary>
-    public static IServiceCollection AddStatusHubAwsPublishers(this IServiceCollection s, IConfiguration config)
+    public static IServiceCollection AddStatusHubAwsPublishers(this IServiceCollection s, IConfiguration config, bool bufferResults = false)
     {
         s.AddSingleton<IAmazonSQS>(_ => new AmazonSQSClient());
         s.AddSingleton<IAmazonEventBridge>(_ => new AmazonEventBridgeClient());
         s.AddSingleton<IMessagePublisher<CheckMessage>>(p => new SqsPublisher<CheckMessage>(p.GetRequiredService<IAmazonSQS>(), config["Queues:Checks"]!, StatusHubJson.Default.CheckMessage));
-        s.AddSingleton<IMessagePublisher<CheckResultMessage>>(p => new SqsPublisher<CheckResultMessage>(p.GetRequiredService<IAmazonSQS>(), config["Queues:Results"]!, StatusHubJson.Default.CheckResultMessage));
+        if (bufferResults)
+        {
+            // Checker: results are collected during the invocation and sent with SendMessageBatch by Program (see SqsBatch afterAll).
+            s.AddSingleton(p => new BufferedPublisher<CheckResultMessage>(
+                new SqsPublisher<CheckResultMessage>(p.GetRequiredService<IAmazonSQS>(), config["Queues:Results"]!, StatusHubJson.Default.CheckResultMessage)));
+            s.AddSingleton<IMessagePublisher<CheckResultMessage>>(p => p.GetRequiredService<BufferedPublisher<CheckResultMessage>>());
+        }
+        else
+            s.AddSingleton<IMessagePublisher<CheckResultMessage>>(p => new SqsPublisher<CheckResultMessage>(p.GetRequiredService<IAmazonSQS>(), config["Queues:Results"]!, StatusHubJson.Default.CheckResultMessage));
         s.AddSingleton<IMessagePublisher<IncidentEvent>>(p => new EventBridgeIncidentPublisher(p.GetRequiredService<IAmazonEventBridge>(), config["EventBus:Name"]!));
         return s;
     }

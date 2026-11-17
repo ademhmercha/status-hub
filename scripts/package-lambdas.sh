@@ -3,6 +3,7 @@
 #
 #   scripts/package-lambdas.sh                  full build (Checker as Native AOT inside an Amazon Linux 2023 container)
 #   scripts/package-lambdas.sh --placeholder    PR plans: Checker is a tiny placeholder (no Docker, ~10x faster)
+#   scripts/package-lambdas.sh --jit-checker    also builds checker-jit.zip (same code, JIT) for loadtest/coldstart.sh
 #
 # Output: build/lambda/{api,scheduler,evaluator,notifier,checker}.zip and build/lambda/manifest.json
 set -euo pipefail
@@ -11,7 +12,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/build/lambda"
 WORK="$ROOT/build/work"
 PLACEHOLDER=false
-[[ "${1:-}" == "--placeholder" ]] && PLACEHOLDER=true
+JIT_CHECKER=false
+for arg in "$@"; do
+  case "$arg" in
+    --placeholder) PLACEHOLDER=true ;;
+    --jit-checker) JIT_CHECKER=true ;;
+    *) echo "unknown option $arg"; exit 2 ;;
+  esac
+done
 
 rm -rf "$OUT" "$WORK"
 mkdir -p "$OUT" "$WORK"
@@ -47,6 +55,15 @@ else
   chmod +x "$WORK/checker/bootstrap"
 fi
 zip_dir "$WORK/checker" "$OUT/checker.zip"
+
+# --- Checker JIT variant, only for the cold start comparison (loadtest/coldstart.sh) -----------------------------
+if $JIT_CHECKER; then
+  echo ">> checker-jit (self-contained, ReadyToRun, no AOT)"
+  dotnet publish "$ROOT/backend/src/StatusHub.Functions.Checker" -c Release -r linux-x64 --self-contained true \
+    -p:PublishAot=false -p:PublishReadyToRun=true -p:DebugType=none -o "$WORK/checker-jit" --nologo -v:q
+  chmod +x "$WORK/checker-jit/bootstrap"
+  zip_dir "$WORK/checker-jit" "$OUT/checker-jit.zip"
+fi
 
 # --- manifest ---------------------------------------------------------------------------------------------------
 {

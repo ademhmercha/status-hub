@@ -91,6 +91,12 @@ variable "metrics_namespace" {
   default     = "StatusHub"
 }
 
+variable "batching_window_seconds" {
+  description = "SQS batching window for the Checker and Evaluator: fewer, fuller batches = fewer SQS and Lambda requests (cost). A check waits at most this long in the queue."
+  type        = number
+  default     = 2
+}
+
 variable "extra_environment" {
   description = "Extra environment variables for every function (e.g. POWERTOOLS_*)"
   type        = map(string)
@@ -253,9 +259,9 @@ locals {
   }
 
   mappings = {
-    checker   = { queue = "checks", batch_size = 10, max_concurrency = var.checker_max_concurrency }
-    evaluator = { queue = "results", batch_size = 10, max_concurrency = 2 }
-    notifier  = { queue = "notifier", batch_size = 1, max_concurrency = 2 }
+    checker   = { queue = "checks", batch_size = 10, batching_window = var.batching_window_seconds, max_concurrency = var.checker_max_concurrency }
+    evaluator = { queue = "results", batch_size = 10, batching_window = var.batching_window_seconds, max_concurrency = 2 }
+    notifier  = { queue = "notifier", batch_size = 1, batching_window = 0, max_concurrency = 2 }
   }
 }
 
@@ -344,10 +350,11 @@ resource "aws_lambda_alias" "live" {
 resource "aws_lambda_event_source_mapping" "this" {
   for_each = local.mappings
 
-  event_source_arn        = var.queue_arns[each.value.queue]
-  function_name           = aws_lambda_alias.live[each.key].arn
-  batch_size              = each.value.batch_size
-  function_response_types = ["ReportBatchItemFailures"]
+  event_source_arn                   = var.queue_arns[each.value.queue]
+  function_name                      = aws_lambda_alias.live[each.key].arn
+  batch_size                         = each.value.batch_size
+  maximum_batching_window_in_seconds = each.value.batching_window
+  function_response_types            = ["ReportBatchItemFailures"]
 
   scaling_config {
     maximum_concurrency = each.value.max_concurrency

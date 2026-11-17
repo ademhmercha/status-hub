@@ -11,9 +11,52 @@ public interface IStage<in TIn>
     Task HandleAsync(TIn message, CancellationToken ct);
 }
 
-public interface IMessagePublisher<in T>
+public interface IMessagePublisher<T>
 {
     Task PublishAsync(T message, CancellationToken ct);
+
+    /// <summary>
+    /// Publishes several messages (SQS is billed per request: one batch request carries up to 10 messages).
+    /// Returns the messages that could NOT be published; empty when everything went through.
+    /// </summary>
+    async Task<IReadOnlyList<T>> PublishManyAsync(IReadOnlyList<T> messages, CancellationToken ct)
+    {
+        var failed = new List<T>();
+        foreach (var m in messages)
+        {
+            try { await PublishAsync(m, ct); }
+            catch (Exception) when (!ct.IsCancellationRequested) { failed.Add(m); }
+        }
+        return failed;
+    }
+}
+
+/// <summary>
+/// Collects messages during one Lambda invocation and sends them in batches at the end (<see cref="FlushAsync"/>).
+/// Used by the Checker: 10 results become 1 SQS request instead of 10.
+/// </summary>
+public sealed class BufferedPublisher<T>(IMessagePublisher<T> inner) : IMessagePublisher<T>
+{
+    public const int MaxBatch = 10;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<T> buffer = new();
+
+    public Task PublishAsync(T message, CancellationToken ct)
+    {
+        buffer.Enqueue(message);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Sends everything buffered. Throws if some messages could not be sent (the caller then fails the SQS batch so it is retried).</summary>
+    public async Task FlushAsync(CancellationToken ct)
+    {
+        var pending = new List<T>();
+        while (buffer.TryDequeue(out var m)) pending.Add(m);
+
+        var unsent = 0;
+        foreach (var chunk in pending.Chunk(MaxBatch))
+            unsent += (await inner.PublishManyAsync(chunk, ct)).Count;
+        if (unsent > 0) throw new InvalidOperationException($"{unsent} of {pending.Count} messages could not be published.");
+    }
 }
 
 public interface IEmailSender

@@ -22,34 +22,38 @@ public sealed class SchedulerStage(
         var due = await monitors.GetDueAsync(tick.Minute, ct);
         var failures = new List<Exception>();
         var published = 0;
-        foreach (var chunk in due.Chunk(25))
+        var failedMessages = 0;
+
+        foreach (var chunk in due.Chunk(100))
         {
-            var results = await Task.WhenAll(chunk.Select(m => ScheduleAsync(m, tick.Minute, ct)));
-            published += results.Count(r => r.Published);
-            failures.AddRange(results.Where(r => r.Error is not null).Select(r => r.Error!));
+            // 1. Idempotency: the same monitor + minute is published at most once, even if the Scheduler is invoked twice.
+            var candidates = chunk.Select(m => new CheckMessage(m.AccountId, m.MonitorId, tick.Minute, m.Url, m.Method, m.ExpectedStatus, m.Keyword, m.TimeoutSeconds)).ToList();
+            var acquired = (await Task.WhenAll(candidates.Select(async msg => (msg, ok: await idempotency.TryAcquireAsync(msg.IdempotencyKey, KeyTtl, ct)))))
+                .Where(x => x.ok).Select(x => x.msg).ToList();
+
+            // 2. One SQS request per 10 messages.
+            foreach (var batch in acquired.Chunk(BufferedPublisher<CheckMessage>.MaxBatch))
+            {
+                IReadOnlyList<CheckMessage> notSent;
+                try { notSent = await checks.PublishManyAsync(batch, ct); }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    failures.Add(ex);
+                    notSent = batch;
+                }
+                published += batch.Length - notSent.Count;
+                failedMessages += notSent.Count;
+                foreach (var msg in notSent)
+                    await idempotency.ReleaseAsync(msg.IdempotencyKey, CancellationToken.None); // allow a retry
+                if (notSent.Count > 0 && failures.Count == 0)
+                    failures.Add(new InvalidOperationException($"{notSent.Count} checks could not be published."));
+            }
         }
+
         // Denominator of the SLO: every check that must run this minute (published now, or already published by an earlier invocation).
-        metrics.Count(MetricNames.ChecksScheduled, due.Count - failures.Count);
+        metrics.Count(MetricNames.ChecksScheduled, due.Count - failedMessages);
         log.LogInformation("Scheduled {Published} of {Due} due monitors for {Minute}", published, due.Count, tick.Minute);
         if (failures.Count > 0) throw new AggregateException("Some checks could not be scheduled.", failures);
-    }
-
-    private async Task<(bool Published, Exception? Error)> ScheduleAsync(UptimeMonitor m, DateTimeOffset minute, CancellationToken ct)
-    {
-        var msg = new CheckMessage(m.AccountId, m.MonitorId, minute, m.Url, m.Method, m.ExpectedStatus, m.Keyword, m.TimeoutSeconds);
-        // Idempotent: the same monitor + minute is published at most once, even if the Scheduler is invoked twice.
-        if (!await idempotency.TryAcquireAsync(msg.IdempotencyKey, KeyTtl, ct)) return (false, null);
-        try
-        {
-            await checks.PublishAsync(msg, ct);
-            return (true, null);
-        }
-        catch (Exception ex)
-        {
-            await idempotency.ReleaseAsync(msg.IdempotencyKey, CancellationToken.None); // allow a retry
-            log.LogError(ex, "Failed to publish check for {MonitorId}", m.MonitorId);
-            return (false, ex);
-        }
     }
 }
 
@@ -73,8 +77,12 @@ public sealed class CheckerStage(
         metrics.Seconds(MetricNames.CheckDelaySeconds, Math.Max(0, delay.TotalSeconds));
         metrics.Milliseconds(MetricNames.CheckLatencyMs, result.LatencyMs);
         if (!result.Success) metrics.Count(MetricNames.ChecksFailed);
-        log.LogInformation("Check {CorrelationId} {Outcome} in {LatencyMs} ms (delay {DelaySeconds:F1} s, error {Error})",
-            message.IdempotencyKey, result.Success ? "up" : "down", result.LatencyMs, delay.TotalSeconds, result.Error);
+        // Healthy checks are only counted (metrics): one log line per check would cost more than the check itself.
+        if (result.Success)
+            log.LogDebug("Check {CorrelationId} up in {LatencyMs} ms (delay {DelaySeconds:F1} s)", message.IdempotencyKey, result.LatencyMs, delay.TotalSeconds);
+        else
+            log.LogInformation("Check {CorrelationId} down: {Error} - {ErrorMessage} (status {StatusCode}, {LatencyMs} ms, delay {DelaySeconds:F1} s)",
+                message.IdempotencyKey, result.Error, result.ErrorMessage, result.StatusCode, result.LatencyMs, delay.TotalSeconds);
 
         await results.PublishAsync(result, ct);
     }
@@ -288,6 +296,8 @@ public sealed class NotifierStage(IAlertRepository alerts, AlertDispatcher dispa
             {
                 await dispatcher.DispatchAsync(sub, e, ct);
                 metrics.Count(MetricNames.AlertsSent);
+                log.LogInformation("Alert sent: type {Type}, incident {IncidentId}, event {EventType}, subscription {SubscriptionId}",
+                    sub.Type, e.IncidentId, e.Type, sub.SubscriptionId);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {

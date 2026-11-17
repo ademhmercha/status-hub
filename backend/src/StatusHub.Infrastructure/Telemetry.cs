@@ -8,9 +8,23 @@ namespace StatusHub.Infrastructure;
 /// <summary>CloudWatch EMF metrics through Powertools. Namespace comes from POWERTOOLS_METRICS_NAMESPACE, the Service dimension from POWERTOOLS_SERVICE_NAME.</summary>
 public sealed class PowertoolsStatusMetrics : IStatusMetrics
 {
-    public void Count(string name, double value = 1) => Metrics.AddMetric(name, value, MetricUnit.Count);
-    public void Milliseconds(string name, double value) => Metrics.AddMetric(name, value, MetricUnit.Milliseconds);
-    public void Seconds(string name, double value) => Metrics.AddMetric(name, value, MetricUnit.Seconds);
+    // The Checker runs the checks of a batch concurrently: serialize access to the shared Powertools metrics context.
+    private static readonly object Gate = new();
+
+    public void Count(string name, double value = 1)
+    {
+        lock (Gate) Metrics.AddMetric(name, value, MetricUnit.Count);
+    }
+
+    public void Milliseconds(string name, double value)
+    {
+        lock (Gate) Metrics.AddMetric(name, value, MetricUnit.Milliseconds);
+    }
+
+    public void Seconds(string name, double value)
+    {
+        lock (Gate) Metrics.AddMetric(name, value, MetricUnit.Seconds);
+    }
 }
 
 /// <summary>Per-invocation observability: correlation id in every log line, cold-start metric, metrics flush.</summary>

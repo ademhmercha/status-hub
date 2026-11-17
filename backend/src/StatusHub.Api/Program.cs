@@ -83,6 +83,13 @@ app.UseOutputCache();
 app.MapOpenApi().AllowAnonymous();
 app.MapStatusHub();
 
+if (localWorker)
+{
+    // Local load tests read the business metrics here (in AWS they go to CloudWatch).
+    app.MapGet("/dev/metrics", (InMemoryStatusMetrics m) => m.Snapshot()).AllowAnonymous().ExcludeFromDescription();
+    app.MapPost("/dev/metrics/reset", (InMemoryStatusMetrics m) => { m.Reset(); return Results.NoContent(); }).AllowAnonymous().ExcludeFromDescription();
+}
+
 app.Run();
 
 public partial class Program;

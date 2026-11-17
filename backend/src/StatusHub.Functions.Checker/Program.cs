@@ -16,7 +16,7 @@ public static class Program
     {
         s.AddSingleton(TimeProvider.System);
         s.AddStatusHubHttp(c);
-        s.AddStatusHubAwsPublishers(c);
+        s.AddStatusHubAwsPublishers(c, bufferResults: true);
     });
 
     public static async Task Main()
@@ -27,7 +27,9 @@ public static class Program
 
     public static Task<SQSBatchResponse> HandleAsync(SQSEvent evt, ILambdaContext context) =>
         Telemetry.RunAsync(context, () =>
-            SqsBatch.ProcessAsync(evt, Services.GetRequiredService<IStage<CheckMessage>>(), StatusHubJson.Default.CheckMessage, CancellationToken.None));
+            SqsBatch.ProcessAsync(evt, Services.GetRequiredService<IStage<CheckMessage>>(), StatusHubJson.Default.CheckMessage, CancellationToken.None,
+                parallel: true, // 10 checks of a batch run concurrently
+                afterAll: ct => Services.GetRequiredService<BufferedPublisher<CheckResultMessage>>().FlushAsync(ct))); // 1 SQS request for the results
 }
 
 [System.Text.Json.Serialization.JsonSerializable(typeof(SQSEvent))]
