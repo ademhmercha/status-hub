@@ -1,10 +1,25 @@
-﻿using StatusHub.Application;
+using Amazon.Lambda.Core;
+using Amazon.Lambda.Serialization.SystemTextJson;
+using Amazon.Lambda.SQSEvents;
+using Microsoft.Extensions.DependencyInjection;
+using StatusHub.Application;
 using StatusHub.Domain;
+using StatusHub.Infrastructure;
+
+[assembly: LambdaSerializer(typeof(DefaultLambdaJsonSerializer))]
 
 namespace StatusHub.Functions.Evaluator;
 
-/// <summary>Lambda entry point. Only wires the shared stage; no business logic here.</summary>
-public sealed class Function(IStage<CheckResultMessage> stage)
+/// <summary>SQS results queue -> stores results/aggregates, opens and closes incidents, emits incident events.</summary>
+public sealed class Function
 {
-    public Task HandleAsync(CheckResultMessage input, CancellationToken ct = default) => stage.HandleAsync(input, ct);
+    private static readonly ServiceProvider Services = DependencyInjection.BuildLambdaServices((s, c) =>
+    {
+        s.AddSingleton(TimeProvider.System);
+        s.AddStatusHubDynamo(c);
+        s.AddStatusHubAwsPublishers(c);
+    });
+
+    public Task<SQSBatchResponse> HandleAsync(SQSEvent evt, ILambdaContext context) =>
+        SqsBatch.ProcessAsync(evt, Services.GetRequiredService<IStage<CheckResultMessage>>(), StatusHubJson.Default.CheckResultMessage, CancellationToken.None);
 }

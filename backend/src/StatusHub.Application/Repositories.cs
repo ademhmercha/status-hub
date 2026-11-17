@@ -1,4 +1,4 @@
-﻿using StatusHub.Domain;
+using StatusHub.Domain;
 
 namespace StatusHub.Application;
 
@@ -59,4 +59,6 @@ public interface IIdempotencyStore
 {
     /// <summary>True the first time a key is seen (within the TTL), false afterwards.</summary>
     Task<bool> TryAcquireAsync(string key, TimeSpan ttl, CancellationToken ct = default);
+    Task ReleaseAsync(string key, CancellationToken ct = default);
 }
+

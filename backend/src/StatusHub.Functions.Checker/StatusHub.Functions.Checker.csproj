@@ -1,4 +1,14 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>bootstrap</AssemblyName>
+    <RootNamespace>StatusHub.Functions.Checker</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <StripSymbols>true</StripSymbols>
+    <TieredPGO>false</TieredPGO>
+  </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\StatusHub.Infrastructure\StatusHub.Infrastructure.csproj" />
@@ -6,12 +16,16 @@
 
   <ItemGroup>
     <PackageReference Include="Amazon.Lambda.Core" Version="3.4.0" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="2.3.1" />
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="3.0.1" />
+    <PackageReference Include="Amazon.Lambda.SQSEvents" Version="3.0.1" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+  <ItemGroup>
+    <!-- Brotli decoder advisory in the SDK-bundled ILCompiler 10.0.12. Not reachable here: the Checker does not enable
+         automatic decompression (no Accept-Encoding: br). Remove once the .NET SDK is updated to a patched version. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-p3jp-9v83-76w9" />
+  </ItemGroup>
 
 </Project>
+

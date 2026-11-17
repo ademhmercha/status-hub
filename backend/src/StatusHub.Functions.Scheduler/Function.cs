@@ -1,10 +1,23 @@
-﻿using StatusHub.Application;
-using StatusHub.Domain;
+using Amazon.Lambda.Core;
+using Amazon.Lambda.Serialization.SystemTextJson;
+using Microsoft.Extensions.DependencyInjection;
+using StatusHub.Application;
+using StatusHub.Infrastructure;
+
+[assembly: LambdaSerializer(typeof(DefaultLambdaJsonSerializer))]
 
 namespace StatusHub.Functions.Scheduler;
 
-/// <summary>Lambda entry point. Only wires the shared stage; no business logic here.</summary>
-public sealed class Function(IStage<SchedulerTick> stage)
+/// <summary>EventBridge Scheduler (every minute) -> publishes one check message per due monitor.</summary>
+public sealed class Function
 {
-    public Task HandleAsync(SchedulerTick input, CancellationToken ct = default) => stage.HandleAsync(input, ct);
+    private static readonly ServiceProvider Services = DependencyInjection.BuildLambdaServices((s, c) =>
+    {
+        s.AddSingleton(TimeProvider.System);
+        s.AddStatusHubDynamo(c);
+        s.AddStatusHubAwsPublishers(c);
+    });
+
+    public Task HandleAsync(Stream input, ILambdaContext context) =>
+        Services.GetRequiredService<IStage<SchedulerTick>>().HandleAsync(SchedulerTick.Now(TimeProvider.System), CancellationToken.None);
 }

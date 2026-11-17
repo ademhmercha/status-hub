@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace StatusHub.IntegrationTests;
 
@@ -7,7 +7,8 @@ public class HealthTests(WebApplicationFactory<Program> factory) : IClassFixture
     [Fact]
     public async Task Health_ReturnsOk()
     {
-        var res = await factory.CreateClient().GetAsync("/health");
+        var res = await factory.WithWebHostBuilder(b => b.UseSetting("StatusHub:LocalWorker", "false")).CreateClient().GetAsync("/health");
         Assert.True(res.IsSuccessStatusCode);
     }
 }
+

@@ -375,5 +375,24 @@ public sealed class IdempotencyStore(IAmazonDynamoDB db, DynamoOptions o, TimePr
         }
         catch (ConditionalCheckFailedException) { return false; }
     }
+
+    public Task ReleaseAsync(string key, CancellationToken ct = default) =>
+        db.DeleteItemAsync(o.TableName, Av.Key("IDEM#" + key, "IDEM"), ct);
+}
+
+public sealed class DemoStateStore(IAmazonDynamoDB db, DynamoOptions o) : IDemoStateStore
+{
+    public async Task<DemoMode> GetAsync(CancellationToken ct = default)
+    {
+        var r = await db.GetItemAsync(o.TableName, Av.Key("DEMO", "STATE"), ct);
+        return r.Item is { Count: > 0 } && Enum.TryParse<DemoMode>(r.Item.StrOrNull("mode"), out var m) ? m : DemoMode.Ok;
+    }
+
+    public Task SetAsync(DemoMode mode, CancellationToken ct = default)
+    {
+        var i = Av.Key("DEMO", "STATE");
+        i["mode"] = Av.S(mode.ToString());
+        return db.PutItemAsync(o.TableName, i, ct);
+    }
 }
 

@@ -1,6 +1,7 @@
-﻿using System.Threading.Channels;
+using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using StatusHub.Application;
 using StatusHub.Domain;
 
@@ -13,38 +14,50 @@ public sealed class ChannelPublisher<T> : IMessagePublisher<T>
     public Task PublishAsync(T message, CancellationToken ct) => Channel.Writer.WriteAsync(message, ct).AsTask();
 }
 
-/// <summary>Drains a channel and calls the stage, exactly like a Lambda event source would.</summary>
-public sealed class StageWorker<T>(ChannelPublisher<T> source, IServiceScopeFactory scopes) : BackgroundService
+/// <summary>Drains a channel and calls the stage, exactly like a Lambda event source would. Errors are logged, never fatal.</summary>
+public sealed class StageWorker<T>(ChannelPublisher<T> source, IServiceScopeFactory scopes, ILogger<StageWorker<T>> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         await foreach (var msg in source.Channel.Reader.ReadAllAsync(ct))
         {
-            using var scope = scopes.CreateScope();
-            await scope.ServiceProvider.GetRequiredService<IStage<T>>().HandleAsync(msg, ct);
+            try
+            {
+                using var scope = scopes.CreateScope();
+                await scope.ServiceProvider.GetRequiredService<IStage<T>>().HandleAsync(msg, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                log.LogError(ex, "Local stage {Stage} failed", typeof(T).Name);
+            }
         }
     }
 }
 
-/// <summary>Replaces EventBridge Scheduler: ticks every minute.</summary>
-public sealed class SchedulerTicker(IServiceScopeFactory scopes) : BackgroundService
+/// <summary>Replaces EventBridge Scheduler: ticks every minute (and once at startup).</summary>
+public sealed class SchedulerTicker(IServiceScopeFactory scopes, TimeProvider clock, ILogger<SchedulerTicker> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(60), clock);
         do
         {
-            var now = DateTimeOffset.UtcNow;
-            var minute = new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0, TimeSpan.Zero);
-            using var scope = scopes.CreateScope();
-            await scope.ServiceProvider.GetRequiredService<IStage<SchedulerTick>>().HandleAsync(new SchedulerTick(minute), ct);
+            try
+            {
+                using var scope = scopes.CreateScope();
+                await scope.ServiceProvider.GetRequiredService<IStage<SchedulerTick>>().HandleAsync(SchedulerTick.Now(clock), ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                log.LogError(ex, "Local scheduler tick failed");
+            }
         } while (await timer.WaitForNextTickAsync(ct));
     }
 }
 
 public static class LocalPipelineExtensions
 {
-    /// <summary>Registers the 4 stages + channels + background workers (local mode only).</summary>
+    /// <summary>Registers the 4 stages, in-memory channels and background workers (local mode only).</summary>
     public static IServiceCollection AddLocalPipeline(this IServiceCollection s)
     {
         s.AddSingleton<ChannelPublisher<CheckMessage>>();
@@ -53,10 +66,7 @@ public static class LocalPipelineExtensions
         s.AddSingleton<IMessagePublisher<CheckMessage>>(p => p.GetRequiredService<ChannelPublisher<CheckMessage>>());
         s.AddSingleton<IMessagePublisher<CheckResultMessage>>(p => p.GetRequiredService<ChannelPublisher<CheckResultMessage>>());
         s.AddSingleton<IMessagePublisher<IncidentEvent>>(p => p.GetRequiredService<ChannelPublisher<IncidentEvent>>());
-        s.AddScoped<IStage<SchedulerTick>, SchedulerStage>();
-        s.AddScoped<IStage<CheckMessage>, CheckerStage>();
-        s.AddScoped<IStage<CheckResultMessage>, EvaluatorStage>();
-        s.AddScoped<IStage<IncidentEvent>, NotifierStage>();
+        s.AddStatusHubStages();
         s.AddHostedService<SchedulerTicker>();
         s.AddHostedService<StageWorker<CheckMessage>>();
         s.AddHostedService<StageWorker<CheckResultMessage>>();
