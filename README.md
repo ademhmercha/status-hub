@@ -12,7 +12,7 @@ SaaS de surveillance de disponibilité avec pages de statut publiques.
 ## Lancer en local
 
 ```bash
-docker compose up -d                       # DynamoDB Local :8000, ElasticMQ :9324, MailHog UI :8025
+docker compose up -d                       # DynamoDB Local :8000, ElasticMQ :9324, MailHog UI :8026
 cd backend
 dotnet run --project src/StatusHub.Api     # API + worker local (Scheduler -> Checker -> Evaluator -> Notifier)
 cd ../frontend
